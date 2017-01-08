@@ -5,32 +5,39 @@ from define_scope import define_scope  # custom decorators
 
 
 class Model:
-	def __init__(self, X, y, output_size=None, dropout=0.5):
+	def __init__(self, X, y, output_size=None,
+		learning_rate=1e-5, learning_rate_decay=0.95,
+		reg=1e-5, dropout=0.5, verbose=False):
 		"""
-		Initalize the model. 
+		Initalize the model.
 
 		Inputs:
 		- output_size: number of classes C
+	    - learning_rate: Scalar giving learning rate for optimization.
+	    - learning_rate_decay: Scalar giving factor used to decay the learning rate
+	      after each epoch.
 		"""
 		self.X = X
 		self.y = y
+		self.learning_rate = learning_rate
+		self.learning_rate_decay = learning_rate_decay
 		self.dropout = dropout
 
 		# Store layers weight & bias
 		self.params = {
 			# input is [1, 9, 9, 1]
 			# 3x3 conv, 1 input, 8 outputs
-			'Wc1': tf.Variable(tf.random_normal([3, 3, 1, 8])),
+			'Wc1': tf.Variable(tf.random_normal([1, 1, 1, 32])),
 			# 3x3 conv, 8 inputs, 16 outputs
-			'Wc2': tf.Variable(tf.random_normal([3, 3, 8, 8])),
+			'Wc2': tf.Variable(tf.random_normal([3, 3, 32, 32])),  # shared
 			# fully connected, 9*9*16 inputs, 512 outputs
-			'Wd1': tf.Variable(tf.random_normal([9 * 9 * 8, 64])),
+			'Wd1': tf.Variable(tf.random_normal([9 * 9 * 32, 64])),
 			# 512 inputs, 2 outputs (class prediction)
 			'Wout': tf.Variable(tf.random_normal([64, output_size])),  # n_classes
 
 			# biases
-			'bc1': tf.Variable(tf.random_normal([8])),
-			'bc2': tf.Variable(tf.random_normal([8])),
+			'bc1': tf.Variable(tf.random_normal([32])),
+			'bc2': tf.Variable(tf.random_normal([32])),
 			'bd1': tf.Variable(tf.random_normal([64])),
 			'bout': tf.Variable(tf.random_normal([output_size]))  # n_classes
 		}
@@ -67,11 +74,11 @@ class Model:
 		conv2 = conv2d(conv1, params['Wc2'], params['bc2'])
 		
 		# Convolution Layer, shared weight
-		# conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
+		conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
 		
 		# Fully connected layer
 		# Reshape conv2 output to fit fully connected layer input
-		fc1 = tf.reshape(conv2, [-1, params['Wd1'].get_shape().as_list()[0]])
+		fc1 = tf.reshape(conv3, [-1, params['Wd1'].get_shape().as_list()[0]])
 		fc1 = tf.add(tf.matmul(fc1, params['Wd1']), params['bd1'])
 		fc1 = tf.nn.relu(fc1)
 		# Apply Dropout
@@ -86,7 +93,7 @@ class Model:
 		"""
 		Train
 		"""
-		optimizer = tf.train.AdamOptimizer(learning_rate=0.1)
+		optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
 		minimize = optimizer.minimize(self.loss)
 		return minimize
 
