@@ -13,9 +13,9 @@ class Model:
 
 		Inputs:
 		- output_size: number of classes C
-	    - learning_rate: Scalar giving learning rate for optimization.
-	    - learning_rate_decay: Scalar giving factor used to decay the learning rate
-	      after each epoch.
+		- learning_rate: Scalar giving learning rate for optimization.
+		- learning_rate_decay: Scalar giving factor used to decay the learning rate
+		  after each epoch.
 		"""
 		self.X = X
 		self.y = y
@@ -27,9 +27,9 @@ class Model:
 		self.params = {
 			# input is [1, 9, 9, 1]
 			# 3x3 conv, 1 input, 8 outputs
-			'Wc1': tf.Variable(tf.random_normal([1, 1, 1, 32])),
+			'Wc1': tf.Variable(tf.random_normal([1, 1, 1, 32]), name='Wc1'),
 			# 3x3 conv, 8 inputs, 16 outputs
-			'Wc2': tf.Variable(tf.random_normal([3, 3, 32, 32])),  # shared
+			'Wc2': tf.Variable(tf.random_normal([3, 3, 32, 32]), name='Wc2'),  # shared
 			# fully connected, 9*9*16 inputs, 512 outputs
 			'Wd1': tf.Variable(tf.random_normal([9 * 9 * 32, 64])),
 			# 512 inputs, 2 outputs (class prediction)
@@ -63,6 +63,52 @@ class Model:
 			X = tf.nn.bias_add(X, b)
 			return tf.nn.relu(X)
 
+		def weight_variable(shape):
+			"""Create a weight variable with appropriate initialization."""
+			initial = tf.truncated_normal(shape, stddev=0.1)
+			return tf.Variable(initial)
+
+		def bias_variable(shape):
+			"""Create a bias variable with appropriate initialization."""
+			initial = tf.constant(0.1, shape=shape)
+			return tf.Variable(initial)
+
+		def variable_summaries(var, name):
+			"""Attach a lot of summaries to a Tensor."""
+			with tf.name_scope('summaries'):
+				mean = tf.reduce_mean(var)
+			tf.scalar_summary('mean/' + name, mean)
+			with tf.name_scope('stddev'):
+				stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+			tf.scalar_summary('stddev/' + name, stddev)
+			tf.scalar_summary('max/' + name, tf.reduce_max(var))
+			tf.scalar_summary('min/' + name, tf.reduce_min(var))
+			tf.histogram_summary(name, var)
+
+		def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.relu):
+			"""Rusable layer code for tensorboard naming
+
+			See: https://github.com/tensorflow/tensorflow/blob/r0.11/tensorflow/examples/tutorials/mnist/mnist_with_summaries.py
+
+			"""
+			with tf.name_scope(layer_name):
+				# This Variable will hold the state of the weights for the layer
+				with tf.name_scope('weights'):
+					weights = weight_variable([input_dim, output_dim])
+					variable_summaries(weights, layer_name + '/weights')
+				with tf.name_scope('biases'):
+					biases = bias_variable([output_dim])
+					variable_summaries(biases, layer_name + '/biases')
+				with tf.name_scope('Wx_plus_b'):
+					preactivate = tf.matmul(input_tensor, weights) + biases
+					tf.histogram_summary(layer_name + '/pre_activations', preactivate)
+			activations = act(preactivate, name='activation')
+			tf.histogram_summary(layer_name + '/activations', activations)
+			return activations
+
+		def conv_relu(input, kernel_shape, bias_shape):
+			pass  # trying this later in the afternoon
+
 		# Unpack parameters
 		X = self.X
 		params = self.params
@@ -71,10 +117,12 @@ class Model:
 		conv1 = conv2d(X, params['Wc1'], params['bc1'])
 		
 		# Convolution Layer
-		conv2 = conv2d(conv1, params['Wc2'], params['bc2'])
+		with tf.variable_scope('conv2'):
+			conv2 = conv2d(conv1, params['Wc2'], params['bc2'])
 		
 		# Convolution Layer, shared weight
-		conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
+		with tf.variable_scope('conv2'):
+			conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
 		
 		# Fully connected layer
 		# Reshape conv2 output to fit fully connected layer input
@@ -82,10 +130,13 @@ class Model:
 		fc1 = tf.add(tf.matmul(fc1, params['Wd1']), params['bd1'])
 		fc1 = tf.nn.relu(fc1)
 		# Apply Dropout
-		fc1 = tf.nn.dropout(fc1, self.dropout)
+		with tf.name_scope('dropout'):
+			tf.scalar_summary('dropout_keep_probability', self.dropout)
+			fc1 = tf.nn.dropout(fc1, self.dropout)
 
 		# Output, class prediction
-		out = tf.add(tf.matmul(fc1, params['Wout']), params['bout'])
+		# out = tf.add(tf.matmul(fc1, params['Wout']), params['bout'])
+		out = nn_layer(fc1, 64, 2, 'out', act=tf.identity)
 		return out
 
 	@define_scope
@@ -93,8 +144,9 @@ class Model:
 		"""
 		Train
 		"""
-		optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-		minimize = optimizer.minimize(self.loss)
+		with tf.name_scope('train'):
+			optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+			minimize = optimizer.minimize(self.loss)
 		return minimize
 
 	@define_scope
@@ -115,5 +167,10 @@ class Model:
 		"""
 		Predict
 		"""
-		correct = tf.nn.in_top_k(self.inference, self.y, 1)
-		return tf.reduce_mean(tf.cast(correct, tf.float32))
+		with tf.name_scope('accuracy'):
+			with tf.name_scope('correct_prediction'):
+				correct_prediction = tf.nn.in_top_k(self.inference, self.y, 1)
+			with tf.name_scope('accuracy'):
+				accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+		tf.scalar_summary('accuracy', accuracy)
+		return accuracy
