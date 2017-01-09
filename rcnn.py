@@ -102,10 +102,13 @@ class Model:
 		"""
 		Cost
 		"""
-		cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-			self.inference, self.y, name='cross_entropy')
-		loss = tf.reduce_mean(cross_entropy, name='cross_entropy_mean')
-		return loss
+		with tf.name_scope('cross_entopy'):
+			diff = tf.nn.sparse_softmax_cross_entropy_with_logits(
+				logits=self.inference, labels=self.y)
+			with tf.name_scope('total'):
+				cross_entropy = tf.reduce_mean(diff)
+		tf.summary.scalar('cross_entropy', cross_entropy)
+		return cross_entropy
 
 	@define_scope
 	def predict(self):
