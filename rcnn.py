@@ -31,22 +31,22 @@ class Model:
 			# 3x3 conv, 8 inputs, 16 outputs
 			'Wc2': tf.Variable(tf.random_normal([3, 3, 32, 32]), name='Wc2'),  # shared
 			# fully connected, 9*9*16 inputs, 512 outputs
-			'Wd1': tf.Variable(tf.random_normal([9 * 9 * 32, 64])),
+			'Wd1': tf.Variable(tf.random_normal([9 * 9 * 32, 32])),
 			# 512 inputs, 2 outputs (class prediction)
-			'Wout': tf.Variable(tf.random_normal([64, output_size])),  # n_classes
+			'Wout': tf.Variable(tf.random_normal([32, output_size])),  # n_classes
 
 			# biases
 			'bc1': tf.Variable(tf.random_normal([32])),
 			'bc2': tf.Variable(tf.random_normal([32])),
-			'bd1': tf.Variable(tf.random_normal([64])),
+			'bd1': tf.Variable(tf.random_normal([32])),
 			'bout': tf.Variable(tf.random_normal([output_size]))  # n_classes
 		}
 
 		# Instantiate functions once
-		self.loss
-		self.inference
-		self.train
-		self.predict
+		# self.loss
+		# self.inference
+		# self.train
+		# self.predict
 	
 	@define_scope
 	def inference(self):
@@ -106,27 +106,53 @@ class Model:
 			tf.histogram_summary(layer_name + '/activations', activations)
 			return activations
 
-		def conv_relu(input, kernel_shape, bias_shape):
-			pass  # trying this later in the afternoon
+		def conv_relu(input_tensor, kernel_shape, bias_shape):
+			# Create variable named "weights".
+			weights = tf.get_variable("weights", kernel_shape,
+				initializer=tf.random_normal_initializer())
+			# Create variable named "biases".
+			biases = tf.get_variable("biases", bias_shape,
+				initializer=tf.constant_initializer(0.0))
+			conv = tf.nn.conv2d(input_tensor, weights,
+				strides=[1, 1, 1, 1], padding='SAME')
+			return tf.nn.relu(conv + biases)
+
+		def board_filter(input_board):
+			with tf.variable_scope('conv1'):
+				relu1 = conv_relu(input_board, [3, 3, 32, 32], [32])
+			with tf.variable_scope('conv2'):
+				return conv_relu(relu1, [3, 3, 32, 32], [32])
+
 
 		# Unpack parameters
 		X = self.X
 		params = self.params
 
 		# Convolution Layer
-		conv1 = conv2d(X, params['Wc1'], params['bc1'])
+		with tf.variable_scope('conv1'):
+			conv1 = conv_relu(X, [1, 1, 1, 32], [32], 'conv1')
+			# conv1 = conv2d(X, params['Wc1'], params['bc1'])
 		
 		# Convolution Layer
-		with tf.variable_scope('conv2'):
-			conv2 = conv2d(conv1, params['Wc2'], params['bc2'])
+		with tf.variable_scope('board_filters') as scope:
+			# conv2 = conv2d(conv1, params['Wc2'], params['bc2'])
+			result1 = board_filter(conv1, [3, 3, 32, 32], [32], 'conv2')
 		
-		# Convolution Layer, shared weight
-		with tf.variable_scope('conv2'):
-			conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
+			# Convolution Layer, 
+			# Share weights within scope
+			scope.reuse_variables()
+			# conv3 = conv2d(conv2, params['Wc2'], params['bc2'])
+			result2 = board_filter(conv2, [3, 3, 32, 32], [32], 'conv3')
 		
+		# with tf.variable_scope("foo"):
+		# 	v = tf.get_variable("v", [1])
+		# 	tf.get_variable_scope().reuse_variables()
+		# 	v1 = tf.get_variable("v", [1])
+		# assert v1 is v
+
 		# Fully connected layer
 		# Reshape conv2 output to fit fully connected layer input
-		fc1 = tf.reshape(conv3, [-1, params['Wd1'].get_shape().as_list()[0]])
+		fc1 = tf.reshape(conv3, [-1, 9 * 9 * 32])
 		fc1 = tf.add(tf.matmul(fc1, params['Wd1']), params['bd1'])
 		fc1 = tf.nn.relu(fc1)
 		# Apply Dropout
@@ -136,7 +162,7 @@ class Model:
 
 		# Output, class prediction
 		# out = tf.add(tf.matmul(fc1, params['Wout']), params['bout'])
-		out = nn_layer(fc1, 64, 2, 'out', act=tf.identity)
+		out = nn_layer(fc1, 32, 2, 'out', act=tf.identity)
 		return out
 
 	@define_scope
@@ -174,3 +200,68 @@ class Model:
 				accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		tf.scalar_summary('accuracy', accuracy)
 		return accuracy
+
+
+'''
+# # # # # # # # # # # # # # # # # # # # # # # # # #
+Graveyard
+# # # # # # # # # # # # # # # # # # # # # # # # # #
+
+Custom LSTMCell
+
+Modified tensorflow.nn.rnn_cell.LSTMCell to remove variable scopes.
+
+This cell allows us to customise variable scope which in turn
+lets us share variables between cells. It is otherwise identical.
+
+    
+class LSTMCell(tf.nn.rnn_cell.RNNCell):
+    def __init__(self, num_units, forget_bias=1.0, input_size=None,
+                 activation=tanh):
+        self._num_units = num_units
+        self._forget_bias = forget_bias
+        self._activation = activation
+
+    @property
+    def state_size(self):
+        return tf.nn.rnn_cell.LSTMStateTuple(self._num_units, self._num_units)
+
+    @property
+    def output_size(self):
+        return self._num_units
+
+    def __call__(self, inputs, state, scope=None):
+        """Long short-term memory cell (LSTM)."""
+    
+        c, h = state
+        
+        # concat
+        # concat = _linear([inputs, h], 4 * self._num_units, True)
+        
+        args = [inputs, h]
+        
+        total_arg_size = 0
+        shapes = [a.get_shape().as_list() for a in args]
+        for shape in shapes:
+            total_arg_size += shape[1]
+        
+        output_size = 4 * self._num_units
+        
+        # shared
+        with vs.variable_scope('LSTMCell_shared_weights'):
+            matrix = vs.get_variable('W', [total_arg_size, output_size])
+            bias_term = vs.get_variable('b', [output_size],
+                initializer=tf.constant_initializer(0.0))
+            
+        res = tf.matmul(tf.concat(1, args), matrix) + bias_term
+        
+        # i = input_gate, j = new_input, f = forget_gate, o = output_gate
+        i, j, f, o = tf.split(1, 4, res)
+        
+        new_c = (c * sigmoid(f + self._forget_bias) + sigmoid(i) * 
+                 self._activation(j))
+        new_h = self._activation(new_c) * sigmoid(o)
+        
+        new_state = tf.nn.rnn_cell.LSTMStateTuple(new_c, new_h)
+        return new_h, new_state
+'''

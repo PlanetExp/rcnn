@@ -1,0 +1,1 @@
+docker run --rm -it -p 8888:8888 -v $(pwd):/notebooks --name=tf gcr.io/tensorflow/tensorflow:latest-py3
